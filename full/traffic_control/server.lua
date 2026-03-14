@@ -6,6 +6,9 @@ local globalState = {
 
 local scenes = {}
 local nextSceneId = 1
+local props = {}
+local nextPropId = 1
+
 local authData = {
     admins = {},
     operators = {}
@@ -71,7 +74,6 @@ end
 local function ensureBaseAces()
     ExecuteCommand(('add_ace "%s" "%s" allow'):format(Config.OperatorPrincipal, Config.Permissions.menu))
     ExecuteCommand(('add_ace "%s" "%s" allow'):format(Config.OperatorPrincipal, Config.Permissions.localZone))
-
     ExecuteCommand(('add_ace "%s" "%s" allow'):format(Config.AdminPrincipal, Config.Permissions.menu))
     ExecuteCommand(('add_ace "%s" "%s" allow'):format(Config.AdminPrincipal, Config.Permissions.global))
     ExecuteCommand(('add_ace "%s" "%s" allow'):format(Config.AdminPrincipal, Config.Permissions.localZone))
@@ -146,13 +148,69 @@ local function sceneList()
     return out
 end
 
+local function propList()
+    local out = {}
+    for _, prop in pairs(props) do
+        out[#out + 1] = {
+            id = prop.id,
+            model = prop.model,
+            x = prop.x,
+            y = prop.y,
+            z = prop.z,
+            heading = prop.heading,
+            ownerIdentifier = prop.ownerIdentifier,
+            ownerName = prop.ownerName
+        }
+    end
+    table.sort(out, function(a, b) return a.id < b.id end)
+    return out
+end
+
+local function modelHash(model)
+    if type(model) == 'number' then return model end
+    return joaat(model)
+end
+
+local function createServerProp(prop)
+    local entity = CreateObjectNoOffset(modelHash(prop.model), prop.x, prop.y, prop.z, true, true, false)
+
+    if entity and entity ~= 0 then
+        SetEntityHeading(entity, prop.heading or 0.0)
+
+        if SetEntityOrphanMode then
+            SetEntityOrphanMode(entity, 2)
+        end
+
+        local settled = GetEntityCoords(entity)
+        prop.x = settled.x
+        prop.y = settled.y
+        prop.z = settled.z
+    end
+
+    prop.entity = entity or 0
+end
+
+local function destroyServerProp(prop)
+    if not prop or not prop.entity or prop.entity == 0 then
+        return
+    end
+
+    local entity = prop.entity
+    if DoesEntityExist(entity) then
+        DeleteEntity(entity)
+    end
+
+    prop.entity = 0
+end
+
 local function syncState(actorName)
     globalState.actorName = actorName or globalState.actorName or 'system'
     TriggerClientEvent('traffic_control:setState', -1, {
         mode = globalState.mode,
         custom = globalState.custom,
         actorName = globalState.actorName,
-        scenes = sceneList()
+        scenes = sceneList(),
+        props = propList()
     })
 end
 
@@ -183,7 +241,8 @@ RegisterNetEvent('traffic_control:requestState', function()
         mode = globalState.mode,
         custom = globalState.custom,
         actorName = globalState.actorName,
-        scenes = sceneList()
+        scenes = sceneList(),
+        props = propList()
     })
     TriggerClientEvent('traffic_control:setPermissions', source, buildPermissionPayload(source))
 end)
@@ -201,10 +260,11 @@ RegisterNetEvent('traffic_control:setPreset', function(mode)
     globalState.custom = nil
     syncState(GetPlayerName(source) or 'system')
 
+    local msg = ('Global traffic preset set to %s.'):format(string.upper(mode))
     if Config.BroadcastGlobalChanges then
-        sendNotify(-1, ('Global traffic preset set to %s.'):format(string.upper(mode)))
+        sendNotify(-1, msg)
     else
-        sendNotify(source, ('Global traffic preset set to %s.'):format(string.upper(mode)))
+        sendNotify(source, msg)
     end
 end)
 
@@ -222,6 +282,7 @@ RegisterNetEvent('traffic_control:setCustom', function(custom)
     }
 
     syncState(GetPlayerName(source) or 'system')
+
     if Config.BroadcastGlobalChanges then
         sendNotify(-1, 'Custom global traffic densities applied.')
     else
@@ -235,8 +296,10 @@ RegisterNetEvent('traffic_control:createScene', function(mode, radius)
 
     local ped = GetPlayerPed(source)
     if ped == 0 then return end
+
     local coords = GetEntityCoords(ped)
     local principal = getPreferredIdentifier(source)
+
     local scene = {
         id = nextSceneId,
         ownerIdentifier = principal or ('source:' .. tostring(source)),
@@ -249,6 +312,7 @@ RegisterNetEvent('traffic_control:createScene', function(mode, radius)
         active = true,
         createdAt = os.time()
     }
+
     nextSceneId = nextSceneId + 1
     scenes[scene.id] = scene
 
@@ -268,6 +332,7 @@ end)
 
 RegisterNetEvent('traffic_control:clearMyScenes', function()
     if not playerHas(source, Config.Permissions.localZone) then return end
+
     local principal = getPreferredIdentifier(source)
     if not principal then return end
 
@@ -285,6 +350,7 @@ end)
 
 RegisterNetEvent('traffic_control:grantByPlayerId', function(targetId, adminMode)
     if not playerHas(source, Config.Permissions.admin) then return end
+
     local principal = getPreferredIdentifier(tonumber(targetId))
     if not principal then return end
 
@@ -309,6 +375,7 @@ end)
 
 RegisterNetEvent('traffic_control:revokeByPlayerId', function(targetId, adminMode)
     if not playerHas(source, Config.Permissions.admin) then return end
+
     local principal = getPreferredIdentifier(tonumber(targetId))
     if not principal then return end
 
@@ -326,12 +393,114 @@ RegisterNetEvent('traffic_control:revokeByPlayerId', function(targetId, adminMod
     sendNotify(source, ('Updated access for %s.'):format(GetPlayerName(tonumber(targetId)) or principal))
 end)
 
+RegisterNetEvent('traffic_control:placeProp', function(model, x, y, z, heading)
+    if not playerHas(source, Config.Permissions.localZone) then return end
+    if type(model) ~= 'string' then return end
+
+    local ownerIdentifier = getPreferredIdentifier(source) or ('source:' .. tostring(source))
+
+    local ownedCount = 0
+    for _, prop in pairs(props) do
+        if prop.ownerIdentifier == ownerIdentifier then
+            ownedCount = ownedCount + 1
+        end
+    end
+
+    local propLimit = Config.PropLimitPerPlayer or 20
+    if ownedCount >= propLimit then
+        sendNotify(source, ('You have reached the prop limit (%s). Remove some props first.'):format(propLimit))
+        return
+    end
+
+    local prop = {
+        id = nextPropId,
+        model = model,
+        x = tonumber(x) or 0.0,
+        y = tonumber(y) or 0.0,
+        z = tonumber(z) or 0.0,
+        heading = tonumber(heading) or 0.0,
+        ownerIdentifier = ownerIdentifier,
+        ownerName = GetPlayerName(source) or 'unknown',
+        entity = 0
+    }
+
+    nextPropId = nextPropId + 1
+    props[prop.id] = prop
+    createServerProp(prop)
+
+    syncState(GetPlayerName(source) or 'system')
+    sendNotify(source, ('Placed prop: %s (%s/%s)'):format(model, ownedCount + 1, propLimit))
+end)
+
+RegisterNetEvent('traffic_control:removeNearestProp', function()
+    if not playerHas(source, Config.Permissions.localZone) then return end
+
+    local ped = GetPlayerPed(source)
+    if ped == 0 then return end
+
+    local playerCoords = GetEntityCoords(ped)
+    local principal = getPreferredIdentifier(source)
+    local nearestId = nil
+    local nearestDist = 999999.0
+
+    for id, prop in pairs(props) do
+        if playerHas(source, Config.Permissions.manage) or prop.ownerIdentifier == principal then
+            local px, py, pz = prop.x, prop.y, prop.z
+
+            if prop.entity and prop.entity ~= 0 and DoesEntityExist(prop.entity) then
+                local entityCoords = GetEntityCoords(prop.entity)
+                px, py, pz = entityCoords.x, entityCoords.y, entityCoords.z
+            end
+
+            local dx = playerCoords.x - px
+            local dy = playerCoords.y - py
+            local dz = playerCoords.z - pz
+            local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+            if dist < nearestDist then
+                nearestDist = dist
+                nearestId = id
+            end
+        end
+    end
+
+    if nearestId and nearestDist <= 15.0 then
+        local prop = props[nearestId]
+        destroyServerProp(prop)
+        props[nearestId] = nil
+
+        syncState(GetPlayerName(source) or 'system')
+        sendNotify(source, ('Removed prop #%s.'):format(nearestId))
+    else
+        sendNotify(source, ('No removable prop nearby. Closest distance: %.2f'):format(nearestDist))
+    end
+end)
+
+RegisterNetEvent('traffic_control:clearMyProps', function()
+    if not playerHas(source, Config.Permissions.localZone) then return end
+
+    local principal = getPreferredIdentifier(source)
+    local removed = 0
+
+    for id, prop in pairs(props) do
+        if prop.ownerIdentifier == principal or playerHas(source, Config.Permissions.manage) then
+            destroyServerProp(prop)
+            props[id] = nil
+            removed = removed + 1
+        end
+    end
+
+    syncState(GetPlayerName(source) or 'system')
+    sendNotify(source, ('Cleared %s prop(s).'):format(removed))
+end)
+
 RegisterCommand('trafficmenu', function(source)
     if source == 0 then return end
     if not playerHas(source, Config.Permissions.menu) then
         sendNotify(source, 'You do not have traffic control access.')
         return
     end
+
     TriggerClientEvent('traffic_control:openMenu', source)
 end, false)
 
@@ -343,8 +512,9 @@ RegisterCommand('traffic', function(source, args)
     end
 
     local sub = args[1] and string.lower(args[1]) or 'status'
+
     if sub == 'status' then
-        sendNotify(source, ('Global mode: %s | Active scenes: %s'):format(globalState.mode, tostring(#sceneList())))
+        sendNotify(source, ('Global mode: %s | Active scenes: %s | Active props: %s'):format(globalState.mode, tostring(#sceneList()), tostring(#propList())))
         return
     end
 
@@ -372,7 +542,8 @@ AddEventHandler('playerJoining', function()
             mode = globalState.mode,
             custom = globalState.custom,
             actorName = globalState.actorName,
-            scenes = sceneList()
+            scenes = sceneList(),
+            props = propList()
         })
     end)
 end)
@@ -381,5 +552,13 @@ AddEventHandler('onResourceStart', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
     authData = readDataFile()
     reapplyStoredAcl()
-    debugPrint('Resource started. Scenes:', tostring(#sceneList()))
+    debugPrint('Resource started. Scenes:', tostring(#sceneList()), 'Props:', tostring(#propList()))
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+
+    for _, prop in pairs(props) do
+        destroyServerProp(prop)
+    end
 end)

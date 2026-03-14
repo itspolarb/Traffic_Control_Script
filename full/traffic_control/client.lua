@@ -2,7 +2,8 @@ local state = {
     mode = Config.DefaultMode,
     custom = nil,
     scenes = {},
-    actorName = 'system'
+    actorName = 'system',
+    props = {}
 }
 
 local permissions = {
@@ -23,6 +24,12 @@ local sceneModeDraft = 'hard_closure'
 local localRadiusDraft = Config.LocalZoneDefaultRadius
 local customDraft = nil
 local previousSceneMap = {}
+local previousPropMap = {}
+local previewProp = nil
+local previewCategory = nil
+local previewIndex = nil
+local previewDistance = Config.PropPlaceDistance
+local previewHeading = 0.0
 
 local function notify(msg)
     if not Config.Notifications then return end
@@ -70,27 +77,21 @@ local function applyGlobalTraffic()
 end
 
 local function isAmbientAiVehicle(veh)
-    if veh == 0 or not DoesEntityExist(veh) then
-        return false
-    end
+    if veh == 0 or not DoesEntityExist(veh) then return false end
 
-    if NetworkGetEntityIsNetworked(veh) then
-        return false
-    end
-
-    local seats = GetVehicleModelNumberOfSeats(GetEntityModel(veh))
-    for seat = -1, seats - 2 do
+    for seat = -1, GetVehicleModelNumberOfSeats(GetEntityModel(veh)) - 2 do
         local ped = GetPedInVehicleSeat(veh, seat)
         if ped ~= 0 and DoesEntityExist(ped) and IsPedAPlayer(ped) then
             return false
         end
     end
 
+    if NetworkGetEntityIsNetworked(veh) then return false end
+
     local driver = GetPedInVehicleSeat(veh, -1)
     if driver ~= 0 and DoesEntityExist(driver) and not IsPedAPlayer(driver) then
         return true
     end
-
     return false
 end
 
@@ -152,6 +153,87 @@ local function suppressScene(scene)
     end
 end
 
+local function propDefinition(category, index)
+    local list = Config.Props and Config.Props[category]
+    if not list then return nil end
+    return list[index]
+end
+
+local function stopPreview()
+    if previewProp and DoesEntityExist(previewProp) then
+        DeleteEntity(previewProp)
+    end
+    previewProp = nil
+    previewCategory = nil
+    previewIndex = nil
+    previewDistance = Config.PropPlaceDistance
+    previewHeading = 0.0
+end
+
+local function startPreview(category, index)
+    stopPreview()
+    local def = propDefinition(category, index)
+    if not def then return end
+
+    local model = joaat(def.model)
+    RequestModel(model)
+    local timeout = GetGameTimer() + 5000
+
+    while not HasModelLoaded(model) and GetGameTimer() < timeout do
+        Wait(0)
+    end
+
+    if not HasModelLoaded(model) then
+        notify('Failed to load prop model.')
+        return
+    end
+
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+
+    previewProp = CreateObjectNoOffset(model, coords.x, coords.y, coords.z, false, false, false)
+    if previewProp == 0 then
+        notify('Failed to create preview prop.')
+        return
+    end
+
+    SetEntityCollision(previewProp, false, false)
+    SetEntityAlpha(previewProp, 180, false)
+    PlaceObjectOnGroundProperly(previewProp)
+    FreezeEntityPosition(previewProp, true)
+
+    previewCategory = category
+    previewIndex = index
+    previewHeading = GetEntityHeading(ped)
+    previewDistance = Config.PropPlaceDistance
+end
+
+local function updatePreview()
+    if not previewProp or not DoesEntityExist(previewProp) then return end
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    local forward = GetEntityForwardVector(ped)
+    local targetX = coords.x + (forward.x * previewDistance)
+    local targetY = coords.y + (forward.y * previewDistance)
+    local targetZ = coords.z + Config.PreviewVerticalOffset
+    local found, groundZ = GetGroundZFor_3dCoord(targetX, targetY, targetZ + 5.0, false)
+    if found then targetZ = groundZ end
+    SetEntityCoordsNoOffset(previewProp, targetX, targetY, targetZ, false, false, false)
+    SetEntityHeading(previewProp, previewHeading)
+end
+
+local function confirmPreview()
+    if not previewProp or not DoesEntityExist(previewProp) then return end
+    local def = propDefinition(previewCategory, previewIndex)
+    if not def then
+        stopPreview()
+        return
+    end
+    local coords = GetEntityCoords(previewProp)
+    TriggerServerEvent('traffic_control:placeProp', def.model, coords.x, coords.y, coords.z, previewHeading)
+    stopPreview()
+end
+
 local function sceneModeKeys()
     local out = {}
     for key, _ in pairs(Config.SceneModes) do
@@ -199,6 +281,23 @@ local function disableMenuGameplayControls()
     DisablePlayerFiring(PlayerPedId(), true)
 end
 
+local function disablePlacementBlockingControls()
+    DisableControlAction(0, 24, true)
+    DisableControlAction(0, 25, true)
+    DisableControlAction(0, 45, true)
+    DisableControlAction(0, 140, true)
+    DisableControlAction(0, 141, true)
+    DisableControlAction(0, 142, true)
+    DisableControlAction(0, 257, true)
+    DisableControlAction(0, 263, true)
+    DisableControlAction(0, 264, true)
+    DisableControlAction(0, 37, true)
+    DisableControlAction(0, 23, true)
+    DisableControlAction(0, 75, true)
+
+    DisablePlayerFiring(PlayerPedId(), true)
+end
+
 local function drawSliderBar(x, y, w, h, value)
     local pct = (value - Config.SliderMin) / (Config.SliderMax - Config.SliderMin)
     pct = clamp(pct, 0.0, 1.0)
@@ -228,6 +327,46 @@ local function sceneRecommendation(mode)
     return data and data.recommendation or 'Recommended sizes vary by use.'
 end
 
+local function findClosestWorldObjectForProp(prop)
+    local closest = 0
+    local closestDist = 999999.0
+    local targetModel = joaat(prop.model)
+
+    local objects = GetGamePool('CObject')
+    for _, obj in ipairs(objects) do
+        if DoesEntityExist(obj) and GetEntityModel(obj) == targetModel then
+            local coords = GetEntityCoords(obj)
+            local dx = coords.x - prop.x
+            local dy = coords.y - prop.y
+            local dz = coords.z - prop.z
+            local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+            if dist < closestDist then
+                closestDist = dist
+                closest = obj
+            end
+        end
+    end
+
+    if closest ~= 0 and closestDist <= 5.0 then
+        return closest
+    end
+
+    return 0
+end
+
+local function cleanupRemovedProp(prop)
+    local obj = findClosestWorldObjectForProp(prop)
+    if obj ~= 0 and DoesEntityExist(obj) then
+        SetEntityAsMissionEntity(obj, true, true)
+        DeleteObject(obj)
+
+        if DoesEntityExist(obj) then
+            DeleteEntity(obj)
+        end
+    end
+end
+
 local function menuRows()
     local path = getMenuPath()
     local rows = {}
@@ -238,6 +377,7 @@ local function menuRows()
         end
         if permissions.localZone then
             rows[#rows + 1] = { type = 'submenu', left = 'Local Traffic Control', right = '→', target = 'local', desc = 'Create and manage local traffic control scenes.' }
+            rows[#rows + 1] = { type = 'submenu', left = 'Scene Equipment', right = '→', target = 'props', desc = 'Place cones, barriers, and lights.' }
             rows[#rows + 1] = { type = 'submenu', left = 'Active Scenes', right = tostring(#state.scenes), target = 'scenes', desc = 'Review and remove active local scenes.' }
         end
         if permissions.admin then
@@ -276,6 +416,28 @@ local function menuRows()
             { type = 'action', left = 'Create Scene At My Position', desc = 'Create a local traffic control scene at your current position.', action = function() TriggerServerEvent('traffic_control:createScene', sceneModeDraft, localRadiusDraft) end },
             { type = 'action', left = 'Clear My Scenes', desc = 'Remove every scene you own.', action = function() TriggerServerEvent('traffic_control:clearMyScenes') end },
         }
+    elseif path == 'props' then
+        rows = {
+            { type = 'submenu', left = 'Cones', right = '→', target = 'props:cones', desc = 'Place traffic cones.' },
+            { type = 'submenu', left = 'Barriers', right = '→', target = 'props:barriers', desc = 'Place barriers.' },
+            { type = 'submenu', left = 'Lights', right = '→', target = 'props:lights', desc = 'Place warning and work lights.' },
+            { type = 'action', left = 'Remove Nearest Prop', desc = 'Remove the nearest prop you own. Managers can remove any prop.', action = function() TriggerServerEvent('traffic_control:removeNearestProp') end },
+            { type = 'action', left = 'Clear My Props', desc = 'Remove every prop you own.', action = function() TriggerServerEvent('traffic_control:clearMyProps') end },
+        }
+    elseif path:sub(1, 6) == 'props:' then
+        local category = path:sub(7)
+        local list = (Config.Props and Config.Props[category]) or {}
+        for i, def in ipairs(list) do
+            rows[#rows + 1] = {
+                type = 'action',
+                left = ('Place %s'):format(def.label),
+                desc = ('Preview and place %s.'):format(def.label),
+                action = function()
+                    startPreview(category, i)
+                    closeMenu()
+                end
+            }
+        end
     elseif path == 'scenes' then
         rows[#rows + 1] = { type = 'label', left = 'Active Scenes', right = tostring(#state.scenes), desc = 'Lists all active local traffic scenes.' }
         for _, scene in ipairs(state.scenes) do
@@ -433,10 +595,14 @@ RegisterNetEvent('traffic_control:setState', function(payload)
     local oldScenes = previousSceneMap
     previousSceneMap = {}
 
+    local oldProps = previousPropMap
+    previousPropMap = {}
+
     state.mode = payload.mode or Config.DefaultMode
     state.custom = payload.custom
     state.scenes = payload.scenes or {}
     state.actorName = payload.actorName or 'system'
+    state.props = payload.props or {}
 
     for _, scene in ipairs(state.scenes) do
         previousSceneMap[scene.id] = scene
@@ -445,6 +611,15 @@ RegisterNetEvent('traffic_control:setState', function(payload)
 
     for _, removedScene in pairs(oldScenes) do
         restoreSceneRoads(removedScene)
+    end
+
+    for _, prop in ipairs(state.props) do
+        previousPropMap[prop.id] = prop
+        oldProps[prop.id] = nil
+    end
+
+    for _, removedProp in pairs(oldProps) do
+        cleanupRemovedProp(removedProp)
     end
 end)
 
@@ -461,25 +636,58 @@ RegisterNetEvent('traffic_control:openMenu', function()
 end)
 
 RegisterCommand('+trafficmenu', function()
+    if previewProp then return end
     if permissions.menu or permissions.hasAccess then
         if menuOpen then closeMenu() else openMenu() end
     else
         notify('You do not have traffic control access.')
     end
 end, false)
+
 RegisterCommand('-trafficmenu', function() end, false)
 RegisterKeyMapping('+trafficmenu', 'Traffic Control Menu', 'keyboard', Config.MenuKey)
 
 CreateThread(function()
     TriggerServerEvent('traffic_control:requestState')
+
     while true do
         Wait(0)
         applyGlobalTraffic()
+
         for _, scene in ipairs(state.scenes) do
             suppressScene(scene)
         end
 
-        if menuOpen then
+        if previewProp then
+            disablePlacementBlockingControls()
+
+            updatePreview()
+            drawTextRaw(0.40, 0.88, 0.30, 'Preview Placement', 0, 255, 255, 255, 255, 1)
+            drawTextRaw(0.40, 0.91, 0.25, '[/]: Rotate  PageUp/PageDown: Distance  Enter/A: Place  Backspace/B: Cancel', 0, 255, 255, 255, 255, 1)
+
+            if IsControlJustPressed(0, 39) then
+                previewHeading = previewHeading - Config.PropRotateStep
+            elseif IsControlJustPressed(0, 40) then
+                previewHeading = previewHeading + Config.PropRotateStep
+            elseif IsControlJustPressed(0, 10) then
+                previewDistance = clamp(previewDistance + Config.PropMoveStep, 1.0, 10.0)
+            elseif IsControlJustPressed(0, 11) then
+                previewDistance = clamp(previewDistance - Config.PropMoveStep, 1.0, 10.0)
+            elseif IsDisabledControlJustPressed(0, 189) then
+                previewHeading = previewHeading - Config.PropRotateStep
+            elseif IsDisabledControlJustPressed(0, 190) then
+                previewHeading = previewHeading + Config.PropRotateStep
+            elseif IsDisabledControlJustPressed(0, 188) then
+                previewDistance = clamp(previewDistance + Config.PropMoveStep, 1.0, 10.0)
+            elseif IsDisabledControlJustPressed(0, 187) then
+                previewDistance = clamp(previewDistance - Config.PropMoveStep, 1.0, 10.0)
+            elseif IsControlJustPressed(0, 191) or IsDisabledControlJustPressed(0, 201) then
+                confirmPreview()
+            elseif IsControlJustPressed(0, 177) or IsDisabledControlJustPressed(0, 202) then
+                stopPreview()
+                openMenu()
+            end
+        elseif menuOpen then
             drawMenu()
             disableMenuGameplayControls()
 
@@ -519,6 +727,7 @@ end)
 
 AddEventHandler('onClientResourceStop', function(resourceName)
     if resourceName ~= GetCurrentResourceName() then return end
+    stopPreview()
     for _, scene in ipairs(state.scenes) do
         restoreSceneRoads(scene)
     end

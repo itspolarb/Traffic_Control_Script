@@ -1,1 +1,6 @@
-{"admins":[],"operators":[]}
+{
+    "operators": [],
+    "admins": [
+        "identifier.fivem:91780"
+    ]
+}

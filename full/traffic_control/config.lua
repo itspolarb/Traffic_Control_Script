@@ -5,6 +5,7 @@ Config.MenuKey = 'F5'
 Config.Notifications = true
 Config.BroadcastGlobalChanges = false
 Config.Debug = false
+Config.PropLimitPerPlayer = 20
 
 -- ACE bootstrap/runtime ACL
 Config.AdminPrincipal = 'group.trafficcontroladmin'
@@ -95,6 +96,29 @@ Config.SceneModes = {
         clearAmbient = false,
         roadBlock = false,
         pedScale = 0.05
+    }
+}
+
+-- Basic prop placement config
+Config.PropPlaceDistance = 3.0
+Config.PropMoveStep = 0.10
+Config.PropRotateStep = 5.0
+Config.PreviewVerticalOffset = 0.0
+
+Config.Props = {
+    cones = {
+        { label = 'Small Cone', model = 'prop_roadcone02a' },
+        { label = 'Large Cone', model = 'prop_mp_cone_04' }
+    },
+    barriers = {
+        { label = 'Work Barrier 05', model = 'prop_barrier_work05' },
+        { label = 'Work Barrier 06A', model = 'prop_barrier_work06a' },
+        { label = 'MP Barrier', model = 'prop_mp_barrier_02b' }
+    },
+    lights = {
+        { label = 'Work Light', model = 'prop_worklight_03b' },
+        { label = 'Warning Light', model = 'prop_warninglight_01' },
+        { label = 'Generator', model = 'prop_generator_03b' }
     }
 }
 
