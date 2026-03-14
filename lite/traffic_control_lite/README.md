@@ -1,33 +1,74 @@
-# traffic_control_lite v1.0
+# traffic_control_lite
 
 Creators: OpenAI & Polarbearr
 
-`traffic_control_lite` is the global-only edition of the traffic framework.
-It keeps the same overall menu feel and built-in user-management flow as the full v1.70 release, but removes local scene traffic control.
+`traffic_control_lite` is the **lite/global-only edition** of the Traffic Control Script Pack.
+
+It is kept in the repository alongside the full **v2.0** release for servers that want the same basic traffic-management style and access-management workflow, but **do not need local scene control or scene equipment props**.
+
+---
+
+## What it is
+
+The lite version is built for servers that only want:
+- global traffic presets
+- custom density sliders
+- in-menu access management
+- a simpler overall setup
+
+It keeps the menu-driven workflow without the extra scene and prop systems from the full version.
+
+---
 
 ## Includes
 
-- Global traffic presets: OFF, LOW, NORMAL, HIGH
+- Global traffic presets:
+  - OFF
+  - LOW
+  - NORMAL
+  - HIGH
 - Custom density sliders
 - In-menu user/access management
 - Runtime ACE/ACL bootstrap flow
 - Persistent authorized identifier storage in JSON
 - Keyboard-open traffic menu
 
+---
+
 ## Does not include
 
 - Local traffic scenes
-- Hard / soft closures
-- Reduced-flow scene bubbles
-- Ped-suppression scenes
+- Hard Closure scenes
+- Soft Closure scenes
+- Reduced Flow scenes
+- Ped Suppression scenes
+- Scene equipment / prop placement
+- Cones, barriers, or lights
+- Remove nearest prop
+- Clear my props
+
+---
+
+## Position in the repo
+
+This repository includes two versions:
+
+- **`traffic_control/`** → full version, updated to **v2.0**
+- **`traffic_control_lite/`** → lite version, global-only option
+
+Use the lite version if your server wants a simpler traffic setup and does not need the full local scene / equipment workflow.
+
+---
 
 ## Folder name
 
-After extracting, rename the folder to:
+After extracting, the resource folder should be named:
 
 ```text
 traffic_control_lite
 ```
+
+---
 
 ## Install
 
@@ -63,6 +104,8 @@ refresh
 ensure traffic_control_lite
 ```
 
+---
+
 ## Permissions
 
 This lite version uses:
@@ -80,11 +123,15 @@ Lets the user change global traffic presets and apply custom sliders.
 ### `trafficcontrol.admin`
 Lets the user manage access for other players from inside the menu.
 
+---
+
 ## Menu sections
 
 - Global Traffic
 - Access Management
 - Refresh
+
+---
 
 ## Commands
 
@@ -96,8 +143,36 @@ Lets the user manage access for other players from inside the menu.
 - `/traffic menu`
 - `/trafficmenu`
 
+---
+
 ## Notes
 
 - Changes apply live with no restart.
 - Global traffic is handled with density controls rather than blunt world cleanup.
 - Notifications are actor-only by default unless `Config.BroadcastGlobalChanges` is enabled.
+- This version remains the simpler alternative to the full **v2.0** release.
+
+---
+
+## Credits / transparency
+
+### Concept, direction, and beta testing
+- **Polarbearr**
+
+### Writing, implementation, cleanup, and documentation
+- **OpenAI (ChatGPT)**
+
+---
+
+## Usage / permission
+
+You can do what you want with this project.
+
+That includes:
+- use
+- edit
+- fork
+- improve
+- redistribute your modified version
+
+Credit is appreciated, but the goal is utility and openness.
