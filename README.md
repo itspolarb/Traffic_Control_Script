@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Traffic Control Script
 
 Traffic Control Script is a FiveM traffic management resource pack built for servers that want cleaner, easier in-game traffic control without relying on constant config edits or server restarts.
@@ -35,3 +36,7 @@ full/
 
 lite/
   traffic_control_lite/
+=======
+# Traffic_Control_Script
+a chatgpt writen traffic control script for fivem, look at and change whatever you want chatgpt wrote it full, just wanted to test if it could and wanted an easy traffic script soyea
+>>>>>>> a3f301b6ee8dc6957cc832cdac93f56dd2c1c521
