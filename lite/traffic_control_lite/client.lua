@@ -73,8 +73,20 @@ local function drawTextRaw(x, y, scale, text, font, r, g, b, a, justify, wrapX)
     SetTextColour(r or 255, g or 255, b or 255, a or 255)
     SetTextOutline()
     SetTextDropshadow(0, 0, 0, 0, 255)
-    SetTextJustification(justify or 1)
-    if wrapX then SetTextWrap(0.0, wrapX) end
+
+    SetTextCentre(false)
+    SetTextRightJustify(false)
+
+    if justify == 0 then
+        SetTextCentre(true)
+    elseif justify == 2 then
+        SetTextRightJustify(true)
+    end
+
+    if wrapX then
+        SetTextWrap(0.0, wrapX)
+    end
+
     BeginTextCommandDisplayText('STRING')
     AddTextComponentSubstringPlayerName(text)
     EndTextCommandDisplayText(x, y)

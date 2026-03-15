@@ -203,6 +203,62 @@ local function destroyServerProp(prop)
     prop.entity = 0
 end
 
+
+local function createOwnedProp(ownerIdentifier, ownerName, model, x, y, z, heading)
+    local prop = {
+        id = nextPropId,
+        model = model,
+        x = tonumber(x) or 0.0,
+        y = tonumber(y) or 0.0,
+        z = tonumber(z) or 0.0,
+        heading = tonumber(heading) or 0.0,
+        ownerIdentifier = ownerIdentifier,
+        ownerName = ownerName or 'unknown',
+        entity = 0
+    }
+
+    nextPropId = nextPropId + 1
+    props[prop.id] = prop
+    createServerProp(prop)
+    return prop
+end
+
+local function placePropRow(ownerIdentifier, ownerName, model, x, y, z, heading, rowCount, rowSpacing, rowDirection, rowAngle)
+    local baseAngle = heading
+    if rowDirection == 'sideways' then
+        baseAngle = baseAngle + 90.0
+    end
+    baseAngle = baseAngle + (tonumber(rowAngle) or 0.0)
+
+    local rad = math.rad(baseAngle)
+    local dirX = -math.sin(rad)
+    local dirY = math.cos(rad)
+
+    local totalWidth = (rowCount - 1) * rowSpacing
+    local startOffset = -(totalWidth / 2.0)
+
+    for i = 0, rowCount - 1 do
+        local offset = startOffset + (i * rowSpacing)
+        local px = x + (dirX * offset)
+        local py = y + (dirY * offset)
+        createOwnedProp(ownerIdentifier, ownerName, model, px, py, z, heading)
+    end
+end
+
+local function placePropPoints(ownerIdentifier, ownerName, model, placements, fallbackHeading)
+    for _, placement in ipairs(placements or {}) do
+        createOwnedProp(
+            ownerIdentifier,
+            ownerName,
+            model,
+            placement.x,
+            placement.y,
+            placement.z,
+            placement.heading or fallbackHeading or 0.0
+        )
+    end
+end
+
 local function syncState(actorName)
     globalState.actorName = actorName or globalState.actorName or 'system'
     TriggerClientEvent('traffic_control:setState', -1, {
@@ -393,11 +449,12 @@ RegisterNetEvent('traffic_control:revokeByPlayerId', function(targetId, adminMod
     sendNotify(source, ('Updated access for %s.'):format(GetPlayerName(tonumber(targetId)) or principal))
 end)
 
-RegisterNetEvent('traffic_control:placeProp', function(model, x, y, z, heading)
+RegisterNetEvent('traffic_control:placeProp', function(model, x, y, z, heading, placementType, rowCount, rowSpacing, rowDirection, rowAngle, placements)
     if not playerHas(source, Config.Permissions.localZone) then return end
     if type(model) ~= 'string' then return end
 
     local ownerIdentifier = getPreferredIdentifier(source) or ('source:' .. tostring(source))
+    local ownerName = GetPlayerName(source) or 'unknown'
 
     local ownedCount = 0
     for _, prop in pairs(props) do
@@ -407,29 +464,60 @@ RegisterNetEvent('traffic_control:placeProp', function(model, x, y, z, heading)
     end
 
     local propLimit = Config.PropLimitPerPlayer or 20
-    if ownedCount >= propLimit then
-        sendNotify(source, ('You have reached the prop limit (%s). Remove some props first.'):format(propLimit))
+    local requestedCount = 1
+    placementType = placementType == 'row' and 'row' or 'single'
+
+    if type(placements) == 'table' and #placements > 0 then
+        requestedCount = #placements
+        if requestedCount <= 1 then
+            placementType = 'single'
+        else
+            placementType = 'row'
+        end
+    elseif placementType == 'row' then
+        rowCount = math.floor(tonumber(rowCount) or Config.PropRowDefaultCount or 5)
+        rowCount = math.max(Config.PropRowMinCount or 2, math.min(Config.PropRowMaxCount or 10, rowCount))
+        requestedCount = rowCount
+    else
+        rowCount = 1
+    end
+
+    rowSpacing = tonumber(rowSpacing) or Config.PropRowDefaultSpacing or 2.5
+    rowSpacing = math.max(Config.PropRowMinSpacing or 0.5, math.min(Config.PropRowMaxSpacing or 10.0, rowSpacing))
+    rowDirection = rowDirection == 'sideways' and 'sideways' or 'forward'
+
+    if (ownedCount + requestedCount) > propLimit then
+        local available = propLimit - ownedCount
+        if placementType == 'row' then
+            sendNotify(source, ('Row would exceed your prop limit. Available slots: %s.'):format(math.max(available, 0)))
+        else
+            sendNotify(source, ('You have reached the prop limit (%s). Remove some props first.'):format(propLimit))
+        end
         return
     end
 
-    local prop = {
-        id = nextPropId,
-        model = model,
-        x = tonumber(x) or 0.0,
-        y = tonumber(y) or 0.0,
-        z = tonumber(z) or 0.0,
-        heading = tonumber(heading) or 0.0,
-        ownerIdentifier = ownerIdentifier,
-        ownerName = GetPlayerName(source) or 'unknown',
-        entity = 0
-    }
+    x = tonumber(x) or 0.0
+    y = tonumber(y) or 0.0
+    z = tonumber(z) or 0.0
+    heading = tonumber(heading) or 0.0
 
-    nextPropId = nextPropId + 1
-    props[prop.id] = prop
-    createServerProp(prop)
-
-    syncState(GetPlayerName(source) or 'system')
-    sendNotify(source, ('Placed prop: %s (%s/%s)'):format(model, ownedCount + 1, propLimit))
+    if type(placements) == 'table' and #placements > 0 then
+        placePropPoints(ownerIdentifier, ownerName, model, placements, heading)
+        syncState(ownerName)
+        if requestedCount > 1 then
+            sendNotify(source, ('Placed %s props in a layout (%s/%s).'):format(requestedCount, ownedCount + requestedCount, propLimit))
+        else
+            sendNotify(source, ('Placed prop: %s (%s/%s)'):format(model, ownedCount + 1, propLimit))
+        end
+    elseif placementType == 'row' then
+        placePropRow(ownerIdentifier, ownerName, model, x, y, z, heading, rowCount, rowSpacing, rowDirection, rowAngle)
+        syncState(ownerName)
+        sendNotify(source, ('Placed %s props in a row (%s/%s).'):format(rowCount, ownedCount + rowCount, propLimit))
+    else
+        createOwnedProp(ownerIdentifier, ownerName, model, x, y, z, heading)
+        syncState(ownerName)
+        sendNotify(source, ('Placed prop: %s (%s/%s)'):format(model, ownedCount + 1, propLimit))
+    end
 end)
 
 RegisterNetEvent('traffic_control:removeNearestProp', function()

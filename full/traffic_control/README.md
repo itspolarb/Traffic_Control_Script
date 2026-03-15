@@ -1,9 +1,8 @@
-# traffic_control v2.0
+# traffic_control v2.1
 
 Creators: OpenAI & Polarbearr
 
-`traffic_control` is the full edition of the traffic-management framework.
-It is built for servers that want both global traffic control and local scene-based traffic control, plus basic scene equipment props for RP use.
+`traffic_control` is the full edition of the traffic-management framework. It is built for servers that want both global traffic control and local scene-based traffic control, plus scene equipment props for RP use.
 
 ---
 
@@ -41,12 +40,38 @@ It is built for servers that want both global traffic control and local scene-ba
 - Clear your props
 - Configurable per-player prop limit
 - Default prop limit: `20`
+- Single or row placement
+- Row count, spacing, direction, and angle controls
+- Presets for working cone layouts
+- Presets for each included barrier model
 
 ### Access management
 - Bootstrap identifier setup
 - Operator access
 - Admin access
 - In-menu user management
+
+---
+
+## What v2.1 adds
+
+v2.1 focuses on improving the full version’s scene-equipment system. The main additions are:
+
+- **row placement mode** alongside normal single placement
+- adjustable **row count**
+- adjustable **row spacing**
+- adjustable **row direction** (`Forward` / `Sideways`)
+- adjustable **row angle** with practical steps
+- **cone presets** for quick lane and shoulder setups
+- **barrier wall presets** for each barrier model included in the resource
+- model tuning so barrier presets line up as proper walls instead of spawning like hurdles
+- configurable **per-player prop limit** with a default of `20`
+- safer cleanup if a player dies while using the menu or placement preview
+
+During testing, broken drag and light presets were removed so the release only keeps the presets that are working correctly.
+
+### Stability fix credit
+- Death-state preview/menu cleanup fix: thanks to **a random mountain lion** for catching that one during testing.
 
 ---
 

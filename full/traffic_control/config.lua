@@ -7,6 +7,34 @@ Config.BroadcastGlobalChanges = false
 Config.Debug = false
 Config.PropLimitPerPlayer = 20
 
+Config.PropRowDefaultCount = 5
+Config.PropRowMinCount = 2
+Config.PropRowMaxCount = 10
+Config.PropRowDefaultSpacing = 2.5
+Config.PropRowMinSpacing = 0.5
+Config.PropRowMaxSpacing = 10.0
+Config.PropRowSpacingStep = 0.25
+
+Config.PropRowDefaultAngle = 0.0
+Config.PropRowMinAngle = -180.0
+Config.PropRowMaxAngle = 180.0
+Config.PropRowAngleStep = 15.0
+
+Config.PropModelTuning = {
+    prop_barrier_work05 = {
+        spacingMultiplier = 1.35,
+        headingOffset = 90.0
+    },
+    prop_barrier_work06a = {
+        spacingMultiplier = 1.35,
+        headingOffset = 90.0
+    },
+    prop_mp_barrier_02b = {
+        spacingMultiplier = 1.20,
+        headingOffset = 90.0
+    }
+}
+
 -- ACE bootstrap/runtime ACL
 Config.AdminPrincipal = 'group.trafficcontroladmin'
 Config.OperatorPrincipal = 'group.trafficcontroloperator'
@@ -120,6 +148,22 @@ Config.Props = {
         { label = 'Warning Light', model = 'prop_warninglight_01' },
         { label = 'Generator', model = 'prop_generator_03b' }
     }
+}
+
+
+Config.PropPresets = {
+    { label = '3 Cone Line', model = 'prop_roadcone02a', count = 3, spacing = 2.0, direction = 'forward', angle = 0.0, anchor = 'center' },
+    { label = '5 Cone Lane', model = 'prop_roadcone02a', count = 5, spacing = 2.5, direction = 'forward', angle = 0.0, anchor = 'center' },
+    { label = '10 Cone Shoulder', model = 'prop_roadcone02a', count = 10, spacing = 2.5, direction = 'forward', angle = 0.0, anchor = 'center' },
+
+    { label = '3 Barrier Wall (Work 05)', model = 'prop_barrier_work05', count = 3, spacing = 2.5, direction = 'sideways', angle = 0.0, headingOffset = 90.0, anchor = 'center' },
+    { label = '5 Barrier Wall (Work 05)', model = 'prop_barrier_work05', count = 5, spacing = 2.5, direction = 'sideways', angle = 0.0, headingOffset = 90.0, anchor = 'center' },
+
+    { label = '3 Barrier Wall (Work 06A)', model = 'prop_barrier_work06a', count = 3, spacing = 2.5, direction = 'sideways', angle = 0.0, headingOffset = 90.0, anchor = 'center' },
+    { label = '5 Barrier Wall (Work 06A)', model = 'prop_barrier_work06a', count = 5, spacing = 2.5, direction = 'sideways', angle = 0.0, headingOffset = 90.0, anchor = 'center' },
+
+    { label = '3 Barrier Wall (MP)', model = 'prop_mp_barrier_02b', count = 3, spacing = 2.5, direction = 'sideways', angle = 0.0, headingOffset = 90.0, anchor = 'center' },
+    { label = '5 Barrier Wall (MP)', model = 'prop_mp_barrier_02b', count = 5, spacing = 2.5, direction = 'sideways', angle = 0.0, headingOffset = 90.0, anchor = 'center' }
 }
 
 Config.PreferredIdentifierTypes = {

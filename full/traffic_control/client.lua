@@ -25,11 +25,22 @@ local localRadiusDraft = Config.LocalZoneDefaultRadius
 local customDraft = nil
 local previousSceneMap = {}
 local previousPropMap = {}
-local previewProp = nil
+local previewProps = {}
+local previewModelHash = nil
+local previewAnchor = nil
 local previewCategory = nil
 local previewIndex = nil
 local previewDistance = Config.PropPlaceDistance
 local previewHeading = 0.0
+local propPlacementTypeDraft = 'single'
+local propRowCountDraft = Config.PropRowDefaultCount
+local propRowSpacingDraft = Config.PropRowDefaultSpacing
+local propRowDirectionDraft = 'forward'
+local propRowAngleDraft = Config.PropRowDefaultAngle
+local propAnchorModeDraft = 'center'
+local propHeadingOffsetDraft = 0.0
+local propPatternAnchorModeDraft = 'centered'
+local buildPlacementPoints
 
 local function notify(msg)
     if not Config.Notifications then return end
@@ -160,17 +171,82 @@ local function propDefinition(category, index)
 end
 
 local function stopPreview()
-    if previewProp and DoesEntityExist(previewProp) then
-        DeleteEntity(previewProp)
+    for i = #previewProps, 1, -1 do
+        local ent = previewProps[i]
+        if ent and DoesEntityExist(ent) then
+            DeleteEntity(ent)
+        end
     end
-    previewProp = nil
+
+    previewProps = {}
+    previewModelHash = nil
+    previewAnchor = nil
     previewCategory = nil
     previewIndex = nil
     previewDistance = Config.PropPlaceDistance
     previewHeading = 0.0
 end
 
-local function startPreview(category, index)
+
+local function forceCloseTrafficUI()
+    stopPreview()
+    menuOpen = false
+    menuStack = { 'main' }
+end
+
+local function isPlayerUnavailable()
+    local ped = PlayerPedId()
+    if ped == 0 or not DoesEntityExist(ped) then return true end
+    if IsEntityDead(ped) or IsPedFatallyInjured(ped) then return true end
+    return false
+end
+
+local function previewDesiredCount()
+    if propPlacementTypeDraft == 'row' then
+        return math.max(1, propRowCountDraft or 1)
+    end
+    return 1
+end
+
+local function ensurePreviewProps(model)
+    local desiredCount = previewDesiredCount()
+    local needsRebuild = previewModelHash ~= model or #previewProps ~= desiredCount
+
+    if not needsRebuild then
+        return true
+    end
+
+    for i = #previewProps, 1, -1 do
+        local ent = previewProps[i]
+        if ent and DoesEntityExist(ent) then
+            DeleteEntity(ent)
+        end
+    end
+    previewProps = {}
+    previewModelHash = model
+
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+
+    for i = 1, desiredCount do
+        local ent = CreateObjectNoOffset(model, coords.x, coords.y, coords.z, false, false, false)
+        if ent == 0 then
+            notify('Failed to create preview prop.')
+            stopPreview()
+            return false
+        end
+        SetEntityCollision(ent, false, false)
+        SetEntityAlpha(ent, 180, false)
+        PlaceObjectOnGroundProperly(ent)
+        FreezeEntityPosition(ent, true)
+        previewProps[#previewProps + 1] = ent
+    end
+
+    return true
+end
+
+local function startPreview(category, index, anchorMode)
+    if isPlayerUnavailable() then return end
     stopPreview()
     local def = propDefinition(category, index)
     if not def then return end
@@ -191,25 +267,41 @@ local function startPreview(category, index)
     local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
 
-    previewProp = CreateObjectNoOffset(model, coords.x, coords.y, coords.z, false, false, false)
-    if previewProp == 0 then
-        notify('Failed to create preview prop.')
+    if not ensurePreviewProps(model) then
         return
     end
-
-    SetEntityCollision(previewProp, false, false)
-    SetEntityAlpha(previewProp, 180, false)
-    PlaceObjectOnGroundProperly(previewProp)
-    FreezeEntityPosition(previewProp, true)
 
     previewCategory = category
     previewIndex = index
     previewHeading = GetEntityHeading(ped)
     previewDistance = Config.PropPlaceDistance
+    propPatternAnchorModeDraft = anchorMode or 'centered'
+end
+
+local function currentRowBaseAngle()
+    local baseAngle = previewHeading
+    if propRowDirectionDraft == 'sideways' then
+        baseAngle = baseAngle + 90.0
+    end
+    baseAngle = baseAngle + (propRowAngleDraft or 0.0)
+    return baseAngle
 end
 
 local function updatePreview()
-    if not previewProp or not DoesEntityExist(previewProp) then return end
+    if #previewProps == 0 or not previewCategory or not previewIndex then return end
+    if isPlayerUnavailable() then
+        stopPreview()
+        return
+    end
+
+    local def = propDefinition(previewCategory, previewIndex)
+    if not def then return end
+
+    local model = joaat(def.model)
+    if not ensurePreviewProps(model) then
+        return
+    end
+
     local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
     local forward = GetEntityForwardVector(ped)
@@ -218,19 +310,65 @@ local function updatePreview()
     local targetZ = coords.z + Config.PreviewVerticalOffset
     local found, groundZ = GetGroundZFor_3dCoord(targetX, targetY, targetZ + 5.0, false)
     if found then targetZ = groundZ end
-    SetEntityCoordsNoOffset(previewProp, targetX, targetY, targetZ, false, false, false)
-    SetEntityHeading(previewProp, previewHeading)
+
+    previewAnchor = { x = targetX, y = targetY, z = targetZ }
+
+    local count = previewDesiredCount()
+    local spacing = propRowSpacingDraft or Config.PropRowDefaultSpacing
+    local rad = math.rad(currentRowBaseAngle())
+    local dirX = -math.sin(rad)
+    local dirY = math.cos(rad)
+    local totalWidth = (count - 1) * spacing
+    local startOffset = propPatternAnchorModeDraft == 'start' and 0.0 or -(totalWidth / 2.0)
+
+    for i, ent in ipairs(previewProps) do
+        local offset = startOffset + ((i - 1) * spacing)
+        local px = targetX
+        local py = targetY
+        local pz = targetZ
+
+        if count > 1 then
+            px = targetX + (dirX * offset)
+            py = targetY + (dirY * offset)
+        end
+
+        local okGround, objGroundZ = GetGroundZFor_3dCoord(px, py, targetZ + 5.0, false)
+        if okGround then
+            pz = objGroundZ
+        end
+
+        SetEntityCoordsNoOffset(ent, px, py, pz, false, false, false)
+        SetEntityHeading(ent, currentRowBaseAngle())
+    end
 end
 
 local function confirmPreview()
-    if not previewProp or not DoesEntityExist(previewProp) then return end
+    if #previewProps == 0 or not previewAnchor then return end
+    if isPlayerUnavailable() then
+        forceCloseTrafficUI()
+        return
+    end
     local def = propDefinition(previewCategory, previewIndex)
     if not def then
         stopPreview()
         return
     end
-    local coords = GetEntityCoords(previewProp)
-    TriggerServerEvent('traffic_control:placeProp', def.model, coords.x, coords.y, coords.z, previewHeading)
+    local coords = previewAnchor
+    local placements = buildPlacementPoints()
+    TriggerServerEvent(
+        'traffic_control:placeProp',
+        def.model,
+        coords.x,
+        coords.y,
+        coords.z,
+        previewHeading,
+        propPlacementTypeDraft,
+        propRowCountDraft,
+        propRowSpacingDraft,
+        propRowDirectionDraft,
+        propRowAngleDraft,
+        placements
+    )
     stopPreview()
 end
 
@@ -298,8 +436,10 @@ local function disablePlacementBlockingControls()
     DisablePlayerFiring(PlayerPedId(), true)
 end
 
-local function drawSliderBar(x, y, w, h, value)
-    local pct = (value - Config.SliderMin) / (Config.SliderMax - Config.SliderMin)
+local function drawSliderBar(x, y, w, h, value, minValue, maxValue)
+    minValue = minValue or Config.SliderMin
+    maxValue = maxValue or Config.SliderMax
+    local pct = (value - minValue) / (maxValue - minValue)
     pct = clamp(pct, 0.0, 1.0)
     drawMenuRect(x, y, w, h, 25, 25, 25, 210)
     drawMenuRect(x, y, w * pct, h, 255, 255, 255, 220)
@@ -310,6 +450,7 @@ local function setSelection(path, idx) selection[path] = idx end
 local function getSelection(path) return selection[path] or 1 end
 
 local function openMenu()
+    if isPlayerUnavailable() then return end
     menuOpen = true
     menuStack = { 'main' }
     TriggerServerEvent('traffic_control:requestState')
@@ -325,6 +466,86 @@ end
 local function sceneRecommendation(mode)
     local data = Config.SceneModes[mode]
     return data and data.recommendation or 'Recommended sizes vary by use.'
+end
+
+local function propPlacementTypeLabel()
+    return propPlacementTypeDraft == 'row' and 'Row' or 'Single'
+end
+
+local function propRowDirectionLabel()
+    return propRowDirectionDraft == 'sideways' and 'Sideways' or 'Forward'
+end
+
+local function propRowAngleLabel()
+    return string.format('%d°', math.floor((propRowAngleDraft or 0.0) + 0.5))
+end
+
+
+local function getPropSliderBounds(key)
+    if key == 'localRadiusDraft' then
+        return Config.LocalZoneMinRadius, Config.LocalZoneMaxRadius
+    elseif key == 'propRowCountDraft' then
+        return Config.PropRowMinCount, Config.PropRowMaxCount
+    elseif key == 'propRowSpacingDraft' then
+        return Config.PropRowMinSpacing, Config.PropRowMaxSpacing
+    elseif key == 'propRowAngleDraft' then
+        return Config.PropRowMinAngle, Config.PropRowMaxAngle
+    end
+    return Config.SliderMin, Config.SliderMax
+end
+
+buildPlacementPoints = function(model, baseX, baseY, baseZ, heading, placementType, rowCount, rowSpacing, rowDirection, rowAngle, anchorMode, headingOffset)
+    local points = {}
+    for _, ent in ipairs(previewProps) do
+        if ent and DoesEntityExist(ent) then
+            local coords = GetEntityCoords(ent)
+            points[#points + 1] = {
+                x = coords.x,
+                y = coords.y,
+                z = coords.z,
+                heading = previewHeading
+            }
+        end
+    end
+    return points
+end
+
+local function applyPropPreset(preset)
+    if not preset then return end
+
+    propPlacementTypeDraft = preset.placementType or 'row'
+    propRowCountDraft = preset.rowCount or preset.count or Config.PropRowDefaultCount
+    propRowSpacingDraft = preset.rowSpacing or preset.spacing or Config.PropRowDefaultSpacing
+    propRowDirectionDraft = preset.rowDirection or preset.direction or 'forward'
+    propRowAngleDraft = preset.rowAngle or preset.angle or Config.PropRowDefaultAngle
+    propAnchorModeDraft = preset.anchorMode or preset.anchor or 'center'
+    propHeadingOffsetDraft = preset.headingOffset or 0.0
+
+    local category = preset.category
+    local index = preset.index
+
+    if (not category or not index) and preset.model then
+        for catName, defs in pairs(Config.Props or {}) do
+            for defIndex, def in ipairs(defs) do
+                if def.model == preset.model then
+                    category = catName
+                    index = defIndex
+                    break
+                end
+            end
+            if category and index then
+                break
+            end
+        end
+    end
+
+    if not category or not index then
+        notify('Preset model not found in Config.Props.')
+        return
+    end
+
+    startPreview(category, index, propAnchorModeDraft)
+    closeMenu()
 end
 
 local function findClosestWorldObjectForProp(prop)
@@ -418,12 +639,36 @@ local function menuRows()
         }
     elseif path == 'props' then
         rows = {
-            { type = 'submenu', left = 'Cones', right = '→', target = 'props:cones', desc = 'Place traffic cones.' },
-            { type = 'submenu', left = 'Barriers', right = '→', target = 'props:barriers', desc = 'Place barriers.' },
-            { type = 'submenu', left = 'Lights', right = '→', target = 'props:lights', desc = 'Place warning and work lights.' },
-            { type = 'action', left = 'Remove Nearest Prop', desc = 'Remove the nearest prop you own. Managers can remove any prop.', action = function() TriggerServerEvent('traffic_control:removeNearestProp') end },
-            { type = 'action', left = 'Clear My Props', desc = 'Remove every prop you own.', action = function() TriggerServerEvent('traffic_control:clearMyProps') end },
+            { type = 'cycle', key = 'propPlacementTypeDraft', left = 'Placement Type', right = propPlacementTypeLabel(), desc = 'Choose whether to place one prop or a full row.' },
         }
+
+        if propPlacementTypeDraft == 'row' then
+            rows[#rows + 1] = { type = 'slider_int', key = 'propRowCountDraft', left = 'Row Count', value = propRowCountDraft, desc = 'How many props to place in the row.' }
+            rows[#rows + 1] = { type = 'slider', key = 'propRowSpacingDraft', left = 'Row Spacing', value = propRowSpacingDraft, desc = 'Spacing between each prop in the row.' }
+            rows[#rows + 1] = { type = 'cycle', key = 'propRowDirectionDraft', left = 'Row Direction', right = propRowDirectionLabel(), desc = 'Direction the row extends from the preview point.' }
+            rows[#rows + 1] = { type = 'slider', key = 'propRowAngleDraft', left = 'Row Angle', value = propRowAngleDraft, desc = 'Additional angle offset for the row pattern.' }
+        end
+
+        if propPlacementTypeDraft == 'row' then
+            rows[#rows + 1] = { type = 'submenu', left = 'Prop Presets', right = '→', target = 'props:presets', desc = 'Quick preset traffic-control layouts.' }
+        end
+        rows[#rows + 1] = { type = 'submenu', left = 'Cones', right = '→', target = 'props:cones', desc = 'Place traffic cones.' }
+        rows[#rows + 1] = { type = 'submenu', left = 'Barriers', right = '→', target = 'props:barriers', desc = 'Place barriers.' }
+        rows[#rows + 1] = { type = 'submenu', left = 'Lights', right = '→', target = 'props:lights', desc = 'Place warning and work lights.' }
+        rows[#rows + 1] = { type = 'action', left = 'Remove Nearest Prop', desc = 'Remove the nearest prop you own. Managers can remove any prop.', action = function() TriggerServerEvent('traffic_control:removeNearestProp') end }
+        rows[#rows + 1] = { type = 'action', left = 'Clear My Props', desc = 'Remove every prop you own.', action = function() TriggerServerEvent('traffic_control:clearMyProps') end }
+    elseif path == 'props:presets' then
+        local list = Config.PropPresets or {}
+        for _, preset in ipairs(list) do
+            rows[#rows + 1] = {
+                type = 'action',
+                left = preset.label or 'Preset',
+                desc = ('Places %s in a preset layout.'):format(preset.label or 'Preset'),
+                action = function()
+                    applyPropPreset(preset)
+                end
+            }
+        end
     elseif path:sub(1, 6) == 'props:' then
         local category = path:sub(7)
         local list = (Config.Props and Config.Props[category]) or {}
@@ -433,7 +678,9 @@ local function menuRows()
                 left = ('Place %s'):format(def.label),
                 desc = ('Preview and place %s.'):format(def.label),
                 action = function()
-                    startPreview(category, i)
+                    propAnchorModeDraft = 'center'
+                    propHeadingOffsetDraft = 0.0
+                    startPreview(category, i, propAnchorModeDraft)
                     closeMenu()
                 end
             }
@@ -503,6 +750,22 @@ local function adjustSlider(row, delta)
         localRadiusDraft = clamp(round2(localRadiusDraft + delta), Config.LocalZoneMinRadius, Config.LocalZoneMaxRadius)
         return
     end
+
+    if row.key == 'propRowCountDraft' then
+        propRowCountDraft = math.floor(clamp(propRowCountDraft + delta, Config.PropRowMinCount, Config.PropRowMaxCount))
+        return
+    end
+
+    if row.key == 'propRowSpacingDraft' then
+        propRowSpacingDraft = clamp(round2(propRowSpacingDraft + delta), Config.PropRowMinSpacing, Config.PropRowMaxSpacing)
+        return
+    end
+
+    if row.key == 'propRowAngleDraft' then
+        propRowAngleDraft = clamp(round2(propRowAngleDraft + delta), Config.PropRowMinAngle, Config.PropRowMaxAngle)
+        return
+    end
+
     if row.key == 'sceneModeDraft' then
         local keys = sceneModeKeys()
         local currentIndex = 1
@@ -513,6 +776,17 @@ local function adjustSlider(row, delta)
         sceneModeDraft = keys[currentIndex]
         return
     end
+
+    if row.key == 'propPlacementTypeDraft' then
+        propPlacementTypeDraft = propPlacementTypeDraft == 'single' and 'row' or 'single'
+        return
+    end
+
+    if row.key == 'propRowDirectionDraft' then
+        propRowDirectionDraft = propRowDirectionDraft == 'forward' and 'sideways' or 'forward'
+        return
+    end
+
     if not customDraft then customDraft = deepCopy(currentGlobalSettings()) end
     customDraft[row.key] = clamp(round2((customDraft[row.key] or 1.0) + delta), Config.SliderMin, Config.SliderMax)
 end
@@ -562,12 +836,27 @@ local function drawMenu()
         local right = row.right or ''
         local rightColor = selected and 15 or 255
 
-        if row.type == 'slider' then
-            local value = row.key == 'localRadiusDraft' and localRadiusDraft or ((customDraft and customDraft[row.key]) or row.value or 0.0)
-            right = string.format('%.2f', value)
+        if row.type == 'slider' or row.type == 'slider_int' then
+            local value = row.value or 0.0
+            if row.key == 'localRadiusDraft' then
+                value = localRadiusDraft
+            elseif row.key == 'propRowCountDraft' then
+                value = propRowCountDraft
+            elseif row.key == 'propRowSpacingDraft' then
+                value = propRowSpacingDraft
+            elseif row.key == 'propRowAngleDraft' then
+                value = propRowAngleDraft
+            else
+                value = ((customDraft and customDraft[row.key]) or row.value or 0.0)
+            end
+            right = row.type == 'slider_int' and string.format('%d', value) or string.format('%.2f', value)
+            if row.key == 'propRowAngleDraft' then
+                right = string.format('%d°', math.floor(value + 0.5))
+            end
             local barX = x + w - 0.126
             local barY = ry + 0.022
-            drawSliderBar(barX, barY, 0.078, 0.006, value)
+            local minValue, maxValue = getPropSliderBounds(row.key)
+            drawSliderBar(barX, barY, 0.078, 0.006, value, minValue, maxValue)
             drawTextRaw(barX - 0.014, ry + 0.004, 0.26, '<', 0, rightColor, rightColor, rightColor, 255, 1)
             drawTextRaw(barX + 0.081, ry + 0.004, 0.26, '>', 0, rightColor, rightColor, rightColor, 255, 1)
             drawTextRaw(x + w - 0.010, ry + 0.007, 0.30, right, 0, rightColor, rightColor, rightColor, 255, 2, x + w - 0.010)
@@ -635,8 +924,17 @@ RegisterNetEvent('traffic_control:openMenu', function()
     if permissions.menu or permissions.hasAccess then openMenu() end
 end)
 
+AddEventHandler('baseevents:onPlayerDied', function()
+    forceCloseTrafficUI()
+end)
+
+AddEventHandler('baseevents:onPlayerKilled', function()
+    forceCloseTrafficUI()
+end)
+
 RegisterCommand('+trafficmenu', function()
-    if previewProp then return end
+    if isPlayerUnavailable() then return end
+    if #previewProps > 0 then return end
     if permissions.menu or permissions.hasAccess then
         if menuOpen then closeMenu() else openMenu() end
     else
@@ -654,16 +952,22 @@ CreateThread(function()
         Wait(0)
         applyGlobalTraffic()
 
-        for _, scene in ipairs(state.scenes) do
-            suppressScene(scene)
-        end
+        if isPlayerUnavailable() then
+            if #previewProps > 0 or menuOpen then
+                forceCloseTrafficUI()
+            end
+        else
+            for _, scene in ipairs(state.scenes) do
+                suppressScene(scene)
+            end
 
-        if previewProp then
+            if #previewProps > 0 then
             disablePlacementBlockingControls()
 
             updatePreview()
-            drawTextRaw(0.40, 0.88, 0.30, 'Preview Placement', 0, 255, 255, 255, 255, 1)
-            drawTextRaw(0.40, 0.91, 0.25, '[/]: Rotate  PageUp/PageDown: Distance  Enter/A: Place  Backspace/B: Cancel', 0, 255, 255, 255, 255, 1)
+            drawTextRaw(0.40, 0.86, 0.30, 'Preview Placement', 0, 255, 255, 255, 255, 1)
+            drawTextRaw(0.40, 0.89, 0.24, ('Mode: %s | Count: %d | Spacing: %.2f | Direction: %s | Angle: %d°'):format(propPlacementTypeLabel(), propRowCountDraft, propRowSpacingDraft, propRowDirectionLabel(), math.floor(propRowAngleDraft + 0.5)), 0, 255, 255, 255, 255, 1)
+            drawTextRaw(0.40, 0.92, 0.25, '[/]: Rotate  PageUp/PageDown: Distance  Enter/A: Place  Backspace/B: Cancel', 0, 255, 255, 255, 255, 1)
 
             if IsControlJustPressed(0, 39) then
                 previewHeading = previewHeading - Config.PropRotateStep
@@ -705,14 +1009,40 @@ CreateThread(function()
                 setSelection(path, idx)
             elseif IsDisabledControlJustPressed(0, 174) or IsDisabledControlJustPressed(0, 189) then
                 local row = rows[idx]
-                if row and (row.type == 'slider' or row.type == 'cycle') then
-                    local delta = row.key == 'localRadiusDraft' and -Config.LocalZoneStep or (row.type == 'cycle' and -1 or -Config.SliderStep)
+                if row and (row.type == 'slider' or row.type == 'slider_int' or row.type == 'cycle') then
+                    local delta
+                    if row.key == 'localRadiusDraft' then
+                        delta = -Config.LocalZoneStep
+                    elseif row.key == 'propRowCountDraft' then
+                        delta = -1
+                    elseif row.type == 'cycle' then
+                        delta = -1
+                    elseif row.key == 'propRowSpacingDraft' then
+                        delta = -Config.PropRowSpacingStep
+                    elseif row.key == 'propRowAngleDraft' then
+                        delta = -Config.PropRowAngleStep
+                    else
+                        delta = -Config.SliderStep
+                    end
                     adjustSlider(row, delta)
                 end
             elseif IsDisabledControlJustPressed(0, 175) or IsDisabledControlJustPressed(0, 190) then
                 local row = rows[idx]
-                if row and (row.type == 'slider' or row.type == 'cycle') then
-                    local delta = row.key == 'localRadiusDraft' and Config.LocalZoneStep or (row.type == 'cycle' and 1 or Config.SliderStep)
+                if row and (row.type == 'slider' or row.type == 'slider_int' or row.type == 'cycle') then
+                    local delta
+                    if row.key == 'localRadiusDraft' then
+                        delta = Config.LocalZoneStep
+                    elseif row.key == 'propRowCountDraft' then
+                        delta = 1
+                    elseif row.type == 'cycle' then
+                        delta = 1
+                    elseif row.key == 'propRowSpacingDraft' then
+                        delta = Config.PropRowSpacingStep
+                    elseif row.key == 'propRowAngleDraft' then
+                        delta = Config.PropRowAngleStep
+                    else
+                        delta = Config.SliderStep
+                    end
                     adjustSlider(row, delta)
                 end
             elseif IsDisabledControlJustPressed(0, 176) or IsDisabledControlJustPressed(0, 201) then
@@ -721,6 +1051,7 @@ CreateThread(function()
             elseif IsDisabledControlJustPressed(0, 177) or IsDisabledControlJustPressed(0, 202) then
                 popMenu()
             end
+        end
         end
     end
 end)

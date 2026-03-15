@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.1.0
+Updated the full version in `full/traffic_control/` to v2.1.
+
+### Added
+- single or row prop placement
+- row count control
+- row spacing control
+- row direction control
+- row angle control
+- cone presets
+- barrier presets for each included barrier model
+- configurable per-player prop limit with a default of 20
+
+### Improved
+- barrier model tuning so barrier presets line up correctly
+- death-safe cleanup for menu and preview states
+- general scene-equipment stability after beta testing
+
+### Notes
+- broken drag and light presets were removed before the v2.1 release so only working presets remain
+- `lite/traffic_control_lite/` remains in the repository as the simpler alternative version
+
 ## v2.0.0
 Updated the full version in `full/traffic_control/` to v2.0.
 
