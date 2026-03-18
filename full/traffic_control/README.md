@@ -1,8 +1,9 @@
-# traffic_control v2.1
+# traffic_control v2.2
 
 Creators: OpenAI & Polarbearr
 
-`traffic_control` is the full edition of the traffic-management framework. It is built for servers that want both global traffic control and local scene-based traffic control, plus scene equipment props for RP use.
+`traffic_control` is the full edition of the traffic-management framework.
+It is built for servers that want both global traffic control and local scene-based traffic control, plus scene equipment props and preset scene deployment for RP use.
 
 ---
 
@@ -39,39 +40,22 @@ Creators: OpenAI & Polarbearr
 - Remove nearest prop
 - Clear your props
 - Configurable per-player prop limit
-- Default prop limit: `20`
+- Fine rotation control for precise placement
 - Single or row placement
 - Row count, spacing, direction, and angle controls
-- Presets for working cone layouts
-- Presets for each included barrier model
+- Grouped preset scene menu
+- Multi-prop scene support
+
+### Included preset scenes
+- Drag Strip Markers (1/8 Mile)
+- Shoulder Work Pack
+- Mini Road Closure
 
 ### Access management
 - Bootstrap identifier setup
 - Operator access
 - Admin access
 - In-menu user management
-
----
-
-## What v2.1 adds
-
-v2.1 focuses on improving the full version’s scene-equipment system. The main additions are:
-
-- **row placement mode** alongside normal single placement
-- adjustable **row count**
-- adjustable **row spacing**
-- adjustable **row direction** (`Forward` / `Sideways`)
-- adjustable **row angle** with practical steps
-- **cone presets** for quick lane and shoulder setups
-- **barrier wall presets** for each barrier model included in the resource
-- model tuning so barrier presets line up as proper walls instead of spawning like hurdles
-- configurable **per-player prop limit** with a default of `20`
-- safer cleanup if a player dies while using the menu or placement preview
-
-During testing, broken drag and light presets were removed so the release only keeps the presets that are working correctly.
-
-### Stability fix credit
-- Death-state preview/menu cleanup fix: thanks to **a random mountain lion** for catching that one during testing.
 
 ---
 
@@ -156,6 +140,27 @@ Lets the user manage access for other players.
 - Scenes are stored on the server and processed client-side by nearby players.
 - Props are synced through shared state and cleaned up visually by clients when removed.
 - Server-side prop lifecycle is intentionally minimal for compatibility with runtimes that do not expose every native the same way.
+- Preset scenes are intended for fast deployment and stable alignment, not custom save/load yet.
+
+---
+
+## v2.2 highlights
+
+### Added
+- grouped preset scenes menu
+- multi-prop scene support
+- one-click preset scene deployment
+
+### Changed
+- presets moved out of the single-prop menu into their own menu
+- rotation controls tuned for finer alignment
+- prop limit increased for larger scenes
+
+### Fixed
+- warning/work light heading issues in preset rows
+- barrier taper alignment issues
+- preset preview stability issues
+- assorted scene alignment issues
 
 ---
 
@@ -166,3 +171,12 @@ Lets the user manage access for other players.
 
 ### Writing, implementation, cleanup, and documentation
 - **OpenAI (ChatGPT)**
+
+---
+
+## Usage / permission
+
+You can do what you want with this project.
+That includes use, edit, fork, improve, and redistribution of modified versions.
+
+Credit is appreciated, but the goal is utility and openness.

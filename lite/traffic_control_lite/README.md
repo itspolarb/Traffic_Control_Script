@@ -4,7 +4,7 @@ Creators: OpenAI & Polarbearr
 
 `traffic_control_lite` is the **lite/global-only edition** of the Traffic Control Script Pack.
 
-It is kept in the repository alongside the full **v2.1** release for servers that want the same basic traffic-management style and access-management workflow, but **do not need local scene control or scene equipment props**.
+It is kept in the repository alongside the full **v2.2** release for servers that want the same basic traffic-management style and access-management workflow, but **do not need local scene control or scene equipment props**.
 
 ---
 
@@ -47,7 +47,8 @@ It keeps the menu-driven workflow without the extra scene and prop systems from 
 - Remove nearest prop
 - Clear my props
 - Row placement
-- Presets
+- Preset scenes
+- Multi-prop scene support
 
 ---
 
@@ -55,7 +56,7 @@ It keeps the menu-driven workflow without the extra scene and prop systems from 
 
 This repository includes two versions:
 
-- **`full/traffic_control/`** → full version, updated to **v2.1**
+- **`full/traffic_control/`** → full version, updated to **v2.2**
 - **`lite/traffic_control_lite/`** → lite version, global-only option
 
 Use the lite version if your server wants a simpler traffic setup and does not need the full local scene / equipment workflow.
@@ -152,7 +153,7 @@ Lets the user manage access for other players from inside the menu.
 - Changes apply live with no restart.
 - Global traffic is handled with density controls rather than blunt world cleanup.
 - Notifications are actor-only by default unless `Config.BroadcastGlobalChanges` is enabled.
-- This version remains the simpler alternative to the full **v2.1** release.
+- This version remains the simpler alternative to the full **v2.2** release.
 
 ---
 

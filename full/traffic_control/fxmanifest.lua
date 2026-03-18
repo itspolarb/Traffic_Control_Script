@@ -6,7 +6,7 @@ lua54 'yes'
 name 'traffic_control'
 author 'OpenAI & Polarbearr'
 description 'Traffic management framework with global traffic control, local scenes, and scene equipment props with beta row placement'
-version '2.1.0-beta-b12-b12-b7-b6'
+version '2.2.0'
 
 shared_scripts {
     'config.lua'

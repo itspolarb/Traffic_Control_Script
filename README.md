@@ -2,10 +2,10 @@
 
 A FiveM traffic-management script pack for servers that want practical live traffic control without constant config edits or restarts.
 
-This repository keeps the same split layout:
+This repository includes two versions:
 
-- **`full/traffic_control/`** → the **full version**, now updated to **v2.1**
-- **`lite/traffic_control_lite/`** → the **lite version**, kept for servers that want a simpler global-only setup
+- **`full/traffic_control/`** → the **full version**, updated to **v2.2**
+- **`lite/traffic_control_lite/`** → the **lite version**, a simpler global-only option
 
 ---
 
@@ -35,12 +35,12 @@ Use the full version if you want the complete framework:
 - cones, barriers, and lights
 - single prop placement
 - row prop placement
-- row count, spacing, direction, and angle controls
-- working cone and barrier presets
+- grouped preset scenes
+- multi-prop scene support
+- fine placement rotation
 - configurable per-player prop limit
-- death-safe menu / preview cleanup
 
-Current full version: **v2.1**
+Current full version: **v2.2**
 
 ### Lite version (`lite/traffic_control_lite/`)
 Use the lite version if you want a simpler setup focused on global traffic control only.
@@ -55,26 +55,33 @@ Lite does **not** include:
 - local scene processing
 - scene equipment props
 - row placement
-- presets
+- preset scenes
+- multi-prop scene support
 
 ---
 
-## What v2.1 adds to the full version
+## What v2.2 adds to the full version
 
-The full v2.1 update expands the scene-equipment system introduced in v2.0. Major additions include:
+The full v2.2 update expands the scene-equipment system with a more organized preset workflow and support for one-click scene deployment.
 
-- **single or row prop placement**
-- configurable **row count**
-- configurable **row spacing**
-- configurable **row direction** (`Forward` / `Sideways`)
-- configurable **row angle** with practical angle steps
-- **cone presets** for quick lane and shoulder layouts
-- **barrier presets** for each included barrier model
-- configurable **per-player prop limit** with a default of `20`
-- safer placement/menu cleanup when a player dies while using the system
-- additional barrier model tuning so barrier walls line up correctly
+### Added
+- **grouped preset scene menu**
+- **multi-prop scene support**
+- preset scenes including:
+  - **Drag Strip Markers (1/8 Mile)**
+  - **Shoulder Work Pack**
+  - **Mini Road Closure**
 
-v2.1 keeps the full version practical for traffic-control RP while avoiding the broken or unreliable presets that were removed during testing.
+### Changed
+- presets moved out of the single-prop menu into their own **Preset Scenes** menu
+- placement rotation tuned for finer control
+- prop limit increased for larger preset scenes
+
+### Fixed
+- warning/work light row orientation
+- barrier taper orientation issues
+- preset preview/menu stability issues
+- assorted preset alignment issues
 
 ---
 
@@ -146,10 +153,10 @@ Admins can access:
 ## Known limitations
 
 ### Full version
-- Included props are intentionally basic and practical
-- Prop placement is designed for RP utility, not full map-editor precision
-- Server runtime native support can vary by artifact/runtime, so the server-side prop lifecycle is intentionally kept minimal for compatibility
-- Prop cleanup uses synced state plus client reconciliation for visual reliability
+- included props are intentionally practical rather than map-editor level
+- preset scenes are designed for quick RP deployment, not full custom save/load yet
+- server runtime native support can vary by artifact/runtime, so the server-side prop lifecycle is intentionally kept minimal for compatibility
+- prop cleanup uses synced state plus client reconciliation for visual reliability
 
 ### Lite version
 - intentionally more limited

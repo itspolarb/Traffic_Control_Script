@@ -26,7 +26,9 @@ local customDraft = nil
 local previousSceneMap = {}
 local previousPropMap = {}
 local previewProps = {}
+local previewPropModels = {}
 local previewModelHash = nil
+local previewLayoutPieces = nil
 local previewAnchor = nil
 local previewCategory = nil
 local previewIndex = nil
@@ -170,6 +172,41 @@ local function propDefinition(category, index)
     return list[index]
 end
 
+
+local function modelTuningFor(model)
+    if not model then return {} end
+    local hash = type(model) == 'number' and model or joaat(model)
+    return (Config.PropModelTuning and (Config.PropModelTuning[hash] or Config.PropModelTuning[model])) or {}
+end
+
+local function presetGroupNames()
+    local groups = {}
+    for _, preset in ipairs(Config.PropPresets or {}) do
+        local group = preset.group or 'Other'
+        if not groups[group] then
+            groups[group] = true
+        end
+    end
+
+    local list = {}
+    for group in pairs(groups) do
+        list[#list + 1] = group
+    end
+    table.sort(list)
+    return list
+end
+
+local function presetsByGroup(groupName)
+    local list = {}
+    for _, preset in ipairs(Config.PropPresets or {}) do
+        local group = preset.group or 'Other'
+        if group == groupName then
+            list[#list + 1] = preset
+        end
+    end
+    return list
+end
+
 local function stopPreview()
     for i = #previewProps, 1, -1 do
         local ent = previewProps[i]
@@ -179,7 +216,9 @@ local function stopPreview()
     end
 
     previewProps = {}
+    previewPropModels = {}
     previewModelHash = nil
+    previewLayoutPieces = nil
     previewAnchor = nil
     previewCategory = nil
     previewIndex = nil
@@ -223,6 +262,7 @@ local function ensurePreviewProps(model)
         end
     end
     previewProps = {}
+    previewPropModels = {}
     previewModelHash = model
 
     local ped = PlayerPedId()
@@ -240,6 +280,7 @@ local function ensurePreviewProps(model)
         PlaceObjectOnGroundProperly(ent)
         FreezeEntityPosition(ent, true)
         previewProps[#previewProps + 1] = ent
+        previewPropModels[#previewPropModels + 1] = model
     end
 
     return true
@@ -278,6 +319,79 @@ local function startPreview(category, index, anchorMode)
     propPatternAnchorModeDraft = anchorMode or 'centered'
 end
 
+
+
+local function ensureLayoutPreviewProps(pieces)
+    for i = #previewProps, 1, -1 do
+        local ent = previewProps[i]
+        if ent and DoesEntityExist(ent) then
+            DeleteEntity(ent)
+        end
+    end
+
+    previewProps = {}
+    previewPropModels = {}
+    previewModelHash = nil
+
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+
+    for i, piece in ipairs(pieces or {}) do
+        local model = joaat(piece.model)
+        RequestModel(model)
+        local timeout = GetGameTimer() + 5000
+
+        while not HasModelLoaded(model) and GetGameTimer() < timeout do
+            Wait(0)
+        end
+
+        if not HasModelLoaded(model) then
+            notify(('Failed to load layout model: %s'):format(piece.model or 'unknown'))
+            stopPreview()
+            return false
+        end
+
+        local ent = CreateObjectNoOffset(model, coords.x, coords.y, coords.z, false, false, false)
+        if ent == 0 then
+            notify('Failed to create preview prop.')
+            stopPreview()
+            return false
+        end
+
+        SetEntityCollision(ent, false, false)
+        SetEntityAlpha(ent, 180, false)
+        PlaceObjectOnGroundProperly(ent)
+        FreezeEntityPosition(ent, true)
+
+        previewProps[#previewProps + 1] = ent
+        previewPropModels[#previewPropModels + 1] = piece.model
+    end
+
+    return true
+end
+
+local function startLayoutPreview(preset)
+    if isPlayerUnavailable() then return end
+    stopPreview()
+
+    local layout = preset and preset.layout
+    if type(layout) ~= 'table' or #layout == 0 then
+        notify('Preset layout is empty.')
+        return
+    end
+
+    if not ensureLayoutPreviewProps(layout) then
+        return
+    end
+
+    previewLayoutPieces = deepCopy(layout)
+    previewHeading = GetEntityHeading(PlayerPedId())
+    previewDistance = Config.PropPlaceDistance
+    previewCategory = nil
+    previewIndex = nil
+    propPatternAnchorModeDraft = preset.anchor or 'center'
+end
+
 local function currentRowBaseAngle()
     local baseAngle = previewHeading
     if propRowDirectionDraft == 'sideways' then
@@ -288,18 +402,22 @@ local function currentRowBaseAngle()
 end
 
 local function updatePreview()
-    if #previewProps == 0 or not previewCategory or not previewIndex then return end
+    if #previewProps == 0 then return end
     if isPlayerUnavailable() then
         stopPreview()
         return
     end
 
-    local def = propDefinition(previewCategory, previewIndex)
-    if not def then return end
+    local def = nil
+    if not previewLayoutPieces then
+        if not previewCategory or not previewIndex then return end
+        def = propDefinition(previewCategory, previewIndex)
+        if not def then return end
 
-    local model = joaat(def.model)
-    if not ensurePreviewProps(model) then
-        return
+        local model = joaat(def.model)
+        if not ensurePreviewProps(model) then
+            return
+        end
     end
 
     local ped = PlayerPedId()
@@ -312,6 +430,34 @@ local function updatePreview()
     if found then targetZ = groundZ end
 
     previewAnchor = { x = targetX, y = targetY, z = targetZ }
+
+    if previewLayoutPieces then
+        local headingRad = math.rad(previewHeading)
+        local forwardX = -math.sin(headingRad)
+        local forwardY = math.cos(headingRad)
+        local rightX = math.cos(headingRad)
+        local rightY = math.sin(headingRad)
+
+        for i, ent in ipairs(previewProps) do
+            local piece = previewLayoutPieces[i] or {}
+            local px = targetX + (forwardX * (piece.forwardOffset or 0.0)) + (rightX * (piece.lateralOffset or 0.0))
+            local py = targetY + (forwardY * (piece.forwardOffset or 0.0)) + (rightY * (piece.lateralOffset or 0.0))
+            local pz = targetZ
+
+            local okGround, objGroundZ = GetGroundZFor_3dCoord(px, py, targetZ + 5.0, false)
+            if okGround then
+                pz = objGroundZ
+            end
+
+            local tuning = modelTuningFor(piece.model)
+            local headingOffset = (piece.headingOffset or 0.0) + (tuning.headingOffset or 0.0)
+
+            SetEntityCoordsNoOffset(ent, px, py, pz, false, false, false)
+            SetEntityHeading(ent, previewHeading + headingOffset)
+        end
+
+        return
+    end
 
     local count = previewDesiredCount()
     local spacing = propRowSpacingDraft or Config.PropRowDefaultSpacing
@@ -337,8 +483,9 @@ local function updatePreview()
             pz = objGroundZ
         end
 
+        local tuning = modelTuningFor(def.model)
         SetEntityCoordsNoOffset(ent, px, py, pz, false, false, false)
-        SetEntityHeading(ent, currentRowBaseAngle())
+        SetEntityHeading(ent, currentRowBaseAngle() + (tuning.headingOffset or 0.0) + (propHeadingOffsetDraft or 0.0))
     end
 end
 
@@ -348,13 +495,35 @@ local function confirmPreview()
         forceCloseTrafficUI()
         return
     end
+
+    local coords = previewAnchor
+    local placements = buildPlacementPoints()
+
+    if previewLayoutPieces then
+        TriggerServerEvent(
+            'traffic_control:placeProp',
+            '__layout__',
+            coords.x,
+            coords.y,
+            coords.z,
+            previewHeading,
+            'layout',
+            #placements,
+            propRowSpacingDraft,
+            propRowDirectionDraft,
+            propRowAngleDraft,
+            placements
+        )
+        stopPreview()
+        return
+    end
+
     local def = propDefinition(previewCategory, previewIndex)
     if not def then
         stopPreview()
         return
     end
-    local coords = previewAnchor
-    local placements = buildPlacementPoints()
+
     TriggerServerEvent(
         'traffic_control:placeProp',
         def.model,
@@ -496,14 +665,15 @@ end
 
 buildPlacementPoints = function(model, baseX, baseY, baseZ, heading, placementType, rowCount, rowSpacing, rowDirection, rowAngle, anchorMode, headingOffset)
     local points = {}
-    for _, ent in ipairs(previewProps) do
+    for i, ent in ipairs(previewProps) do
         if ent and DoesEntityExist(ent) then
             local coords = GetEntityCoords(ent)
             points[#points + 1] = {
+                model = previewPropModels[i],
                 x = coords.x,
                 y = coords.y,
                 z = coords.z,
-                heading = previewHeading
+                heading = GetEntityHeading(ent)
             }
         end
     end
@@ -512,6 +682,16 @@ end
 
 local function applyPropPreset(preset)
     if not preset then return end
+
+    if type(preset.layout) == 'table' and #preset.layout > 0 then
+        propPlacementTypeDraft = 'layout'
+        propRowCountDraft = #preset.layout
+        propAnchorModeDraft = preset.anchor or 'center'
+        propHeadingOffsetDraft = 0.0
+        startLayoutPreview(preset)
+        closeMenu()
+        return
+    end
 
     propPlacementTypeDraft = preset.placementType or 'row'
     propRowCountDraft = preset.rowCount or preset.count or Config.PropRowDefaultCount
@@ -599,6 +779,7 @@ local function menuRows()
         if permissions.localZone then
             rows[#rows + 1] = { type = 'submenu', left = 'Local Traffic Control', right = '→', target = 'local', desc = 'Create and manage local traffic control scenes.' }
             rows[#rows + 1] = { type = 'submenu', left = 'Scene Equipment', right = '→', target = 'props', desc = 'Place cones, barriers, and lights.' }
+            rows[#rows + 1] = { type = 'submenu', left = 'Preset Scenes', right = '→', target = 'props:presets', desc = 'Quick preset traffic-control layouts, including multi-prop scenes.' }
             rows[#rows + 1] = { type = 'submenu', left = 'Active Scenes', right = tostring(#state.scenes), target = 'scenes', desc = 'Review and remove active local scenes.' }
         end
         if permissions.admin then
@@ -649,21 +830,30 @@ local function menuRows()
             rows[#rows + 1] = { type = 'slider', key = 'propRowAngleDraft', left = 'Row Angle', value = propRowAngleDraft, desc = 'Additional angle offset for the row pattern.' }
         end
 
-        if propPlacementTypeDraft == 'row' then
-            rows[#rows + 1] = { type = 'submenu', left = 'Prop Presets', right = '→', target = 'props:presets', desc = 'Quick preset traffic-control layouts.' }
-        end
         rows[#rows + 1] = { type = 'submenu', left = 'Cones', right = '→', target = 'props:cones', desc = 'Place traffic cones.' }
         rows[#rows + 1] = { type = 'submenu', left = 'Barriers', right = '→', target = 'props:barriers', desc = 'Place barriers.' }
         rows[#rows + 1] = { type = 'submenu', left = 'Lights', right = '→', target = 'props:lights', desc = 'Place warning and work lights.' }
         rows[#rows + 1] = { type = 'action', left = 'Remove Nearest Prop', desc = 'Remove the nearest prop you own. Managers can remove any prop.', action = function() TriggerServerEvent('traffic_control:removeNearestProp') end }
         rows[#rows + 1] = { type = 'action', left = 'Clear My Props', desc = 'Remove every prop you own.', action = function() TriggerServerEvent('traffic_control:clearMyProps') end }
     elseif path == 'props:presets' then
-        local list = Config.PropPresets or {}
+        local groups = presetGroupNames()
+        for _, groupName in ipairs(groups) do
+            rows[#rows + 1] = {
+                type = 'submenu',
+                left = groupName,
+                right = '→',
+                target = ('presetgroup:%s'):format(groupName),
+                desc = ('Browse %s presets.'):format(groupName)
+            }
+        end
+    elseif path:sub(1, 12) == 'presetgroup:' then
+        local groupName = path:sub(13)
+        local list = presetsByGroup(groupName)
         for _, preset in ipairs(list) do
             rows[#rows + 1] = {
                 type = 'action',
                 left = preset.label or 'Preset',
-                desc = ('Places %s in a preset layout.'):format(preset.label or 'Preset'),
+                desc = preset.description or ('Places %s in a preset layout.'):format(preset.label or 'Preset'),
                 action = function()
                     applyPropPreset(preset)
                 end
@@ -966,7 +1156,14 @@ CreateThread(function()
 
             updatePreview()
             drawTextRaw(0.40, 0.86, 0.30, 'Preview Placement', 0, 255, 255, 255, 255, 1)
-            drawTextRaw(0.40, 0.89, 0.24, ('Mode: %s | Count: %d | Spacing: %.2f | Direction: %s | Angle: %d°'):format(propPlacementTypeLabel(), propRowCountDraft, propRowSpacingDraft, propRowDirectionLabel(), math.floor(propRowAngleDraft + 0.5)), 0, 255, 255, 255, 255, 1)
+            local previewMode = propPlacementTypeLabel()
+            local previewInfo
+            if previewLayoutPieces then
+                previewInfo = ('Mode: Layout | Pieces: %d | Rotate whole scene with [/]'):format(#previewProps)
+            else
+                previewInfo = ('Mode: %s | Count: %d | Spacing: %.2f | Direction: %s | Angle: %d°'):format(previewMode, propRowCountDraft, propRowSpacingDraft, propRowDirectionLabel(), math.floor(propRowAngleDraft + 0.5))
+            end
+            drawTextRaw(0.40, 0.89, 0.24, previewInfo, 0, 255, 255, 255, 255, 1)
             drawTextRaw(0.40, 0.92, 0.25, '[/]: Rotate  PageUp/PageDown: Distance  Enter/A: Place  Backspace/B: Cancel', 0, 255, 255, 255, 255, 1)
 
             if IsControlJustPressed(0, 39) then

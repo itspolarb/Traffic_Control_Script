@@ -250,7 +250,7 @@ local function placePropPoints(ownerIdentifier, ownerName, model, placements, fa
         createOwnedProp(
             ownerIdentifier,
             ownerName,
-            model,
+            placement.model or model,
             placement.x,
             placement.y,
             placement.z,
