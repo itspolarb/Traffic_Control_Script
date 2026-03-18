@@ -9,18 +9,24 @@ This repository includes two versions:
 
 ---
 
-## Repository structure
+## 🧠 For Developers
 
-```text
-Traffic_Control_Script/
-├─ README.md
-├─ CHANGELOG.md
-├─ LICENSE
-├─ full/
-│  └─ traffic_control/
-└─ lite/
-   └─ traffic_control_lite/
-```
+This script is fully data-driven and designed to scale.
+
+If you're modifying or extending it, start here:
+
+👉 [Full Architecture Breakdown](docs/ARCHITECTURE.md)
+
+## Documentation
+
+- [Architecture Deep Dive](docs/ARCHITECTURE.md)
+
+A full breakdown of how the system works internally, including:
+- preview system
+- placement logic
+- preset system
+- model tuning
+- FiveM natives used
 
 ## Full vs Lite
 
